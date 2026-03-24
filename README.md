@@ -1,36 +1,95 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# VoiceShift — Real-Time AI Voice Changer
 
-## Getting Started
+Single-tenant web app: speak into your mic → voice converted live to a cloned target voice via Seed-VC on Modal GPUs.
 
-First, run the development server:
+## Stack
+
+| Layer | Tool |
+|-------|------|
+| Frontend + API | Next.js 16 (App Router) |
+| Voice model | Seed-VC (zero-shot) |
+| GPU serverless | Modal (A10G) |
+| Audio streaming | WebSocket |
+| Storage | Cloudflare R2 |
+| Database | Supabase |
+| Deploy | Vercel + Modal |
+
+## Deploy for a New Customer
+
+### 1. Clone & install
+
+```bash
+git clone <repo> && cd voice-changer-app
+npm install
+pip install modal  # for deploying the backend
+```
+
+### 2. Supabase
+
+1. Create a new project at [supabase.com](https://supabase.com)
+2. Open the SQL editor and run `supabase/schema.sql`
+3. Copy your project URL, anon key, and service role key
+
+### 3. Cloudflare R2
+
+1. Create a new bucket at [dash.cloudflare.com](https://dash.cloudflare.com) → R2
+2. Enable public access on the bucket
+3. Create an API token with R2 read/write permissions
+
+### 4. Modal
+
+```bash
+modal setup   # authenticate
+cd modal
+modal deploy server.py
+```
+
+Copy the WebSocket URL printed at the end (e.g. `wss://your-org--voice-changer-web.modal.run/ws`).
+
+### 5. Environment variables
+
+```bash
+cp .env.example .env.local
+# Fill in all values
+```
+
+### 6. Deploy to Vercel
+
+```bash
+npx vercel --prod
+# Or push to GitHub and connect the repo in Vercel dashboard
+# Add all env vars in Vercel → Project Settings → Environment Variables
+```
+
+Done — the customer has their own isolated instance.
+
+---
+
+## Local Development
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+# Visit http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+For voice conversion to work locally, you need `MODAL_WS_URL` pointing to a deployed Modal server. The upload and profile flows work without Modal.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Audio Routing (for use in calls)
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+To use your converted voice in Zoom, Discord, etc.:
 
-## Learn More
+**macOS:** Install [BlackHole](https://existential.audio/blackhole/) → set it as the default output → select it as your microphone in the call app.
 
-To learn more about Next.js, take a look at the following resources:
+**Windows:** Install [VB-Cable](https://vb-audio.com/Cable/) → same idea.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Cost (per customer)
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+| Resource | Cost |
+|----------|------|
+| Modal GPU (A10G, active use only) | ~$0.10/hr |
+| Cloudflare R2 (under 10 GB) | Free |
+| Supabase | Free tier |
+| Vercel | Free tier |
+| **Total (light use)** | **~$0–$20/month** |
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Modal's $30 free credits cover all initial testing.

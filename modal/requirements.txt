@@ -1,0 +1,6 @@
+modal
+torch
+torchaudio
+numpy
+scipy
+huggingface_hub
