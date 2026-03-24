@@ -3,10 +3,12 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { ModalWSClient, ConnectionState } from "@/lib/modal";
 
-const SAMPLE_RATE = 16000;
-const CHUNK_MS = 1500; // ms per audio chunk sent to Modal
-const CHUNK_SAMPLES = (SAMPLE_RATE * CHUNK_MS) / 1000; // 24000 samples
-const FADE_SAMPLES = Math.floor(SAMPLE_RATE * 0.02); // 20ms fade-in to smooth chunk boundaries
+const SAMPLE_RATE       = 16000;
+const SILENCE_THRESHOLD = 0.01;
+const SILENCE_SAMPLES   = Math.floor(SAMPLE_RATE * 0.25); // 250ms silence → end of phrase
+const MIN_SAMPLES       = Math.floor(SAMPLE_RATE * 0.3);  // 300ms min before sending
+const MAX_SAMPLES       = SAMPLE_RATE * 3;                 // 3s max (non-stop speech failsafe)
+const FADE_SAMPLES      = Math.floor(SAMPLE_RATE * 0.02); // 20ms fade-in to smooth boundaries
 
 interface Props {
   activeProfileUrl: string | null;
@@ -29,6 +31,7 @@ export default function VoiceChanger({ activeProfileUrl }: Props) {
   const wsUrlRef = useRef<string | null>(null);
   const chunkBufferRef = useRef<Float32Array[]>([]);
   const chunkSamplesCollected = useRef(0);
+  const silenceSamplesRef = useRef(0);
   const activeProfileUrlRef = useRef<string | null>(activeProfileUrl);
 
   // Fetch WS URL once
@@ -148,23 +151,28 @@ export default function VoiceChanger({ activeProfileUrl }: Props) {
       chunkBufferRef.current.push(new Float32Array(inputData));
       chunkSamplesCollected.current += inputData.length;
 
-      if (chunkSamplesCollected.current >= CHUNK_SAMPLES) {
-        // Concatenate buffered chunks
-        const total = chunkSamplesCollected.current;
-        const merged = new Float32Array(total);
-        let offset = 0;
-        for (const chunk of chunkBufferRef.current) {
-          merged.set(chunk, offset);
-          offset += chunk.length;
-        }
-        chunkBufferRef.current = [];
-        chunkSamplesCollected.current = 0;
+      // Per-buffer silence detection
+      let sumSq = 0;
+      for (let i = 0; i < inputData.length; i++) sumSq += inputData[i] * inputData[i];
+      const isSilent = Math.sqrt(sumSq / inputData.length) < SILENCE_THRESHOLD;
+      if (isSilent) { silenceSamplesRef.current += inputData.length; }
+      else          { silenceSamplesRef.current = 0; }
 
-        // Skip silent chunks — don't waste GPU on noise
-        let sumSq = 0;
-        for (let i = 0; i < merged.length; i++) sumSq += merged[i] * merged[i];
-        const rms = Math.sqrt(sumSq / merged.length);
-        if (rms < 0.01) return;
+      const enoughAudio  = chunkSamplesCollected.current >= MIN_SAMPLES;
+      const silencePause = silenceSamplesRef.current     >= SILENCE_SAMPLES;
+      const tooLong      = chunkSamplesCollected.current >= MAX_SAMPLES;
+
+      if (enoughAudio && (silencePause || tooLong)) {
+        const merged = new Float32Array(chunkSamplesCollected.current);
+        let offset = 0;
+        for (const buf of chunkBufferRef.current) { merged.set(buf, offset); offset += buf.length; }
+        chunkBufferRef.current        = [];
+        chunkSamplesCollected.current = 0;
+        silenceSamplesRef.current     = 0;
+
+        // Skip if overall chunk is silent
+        let s = 0; for (let i = 0; i < merged.length; i++) s += merged[i] * merged[i];
+        if (Math.sqrt(s / merged.length) < SILENCE_THRESHOLD) return;
 
         wsClient.sendAudio(merged.buffer);
       }
@@ -188,6 +196,7 @@ export default function VoiceChanger({ activeProfileUrl }: Props) {
     nextPlayTimeRef.current = 0;
     chunkBufferRef.current = [];
     chunkSamplesCollected.current = 0;
+    silenceSamplesRef.current = 0;
     setIsRunning(false);
     setConnState("disconnected");
     setLatency(null);
