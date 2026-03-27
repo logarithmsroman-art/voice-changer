@@ -65,7 +65,7 @@ app = modal.App("voice-changer", image=image)
 
 @app.function(
     gpu="A10G",
-    min_containers=1,
+    min_containers=0,
     timeout=3600,  # 1 hour max session
     max_containers=10,
 )
