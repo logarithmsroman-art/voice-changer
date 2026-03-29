@@ -2,7 +2,6 @@ export const runtime = "edge";
 import { NextRequest, NextResponse } from "next/server";
 import { uploadToR2 } from "@/lib/r2";
 import { createServiceClient } from "@/lib/supabase";
-import { randomUUID } from "crypto";
 
 const MAX_BYTES = 500 * 1024 * 1024; // 500 MB — model files can be large
 
@@ -18,7 +17,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "File too large (max 500 MB)" }, { status: 400 });
   }
 
-  const uuid = randomUUID();
+  const uuid = crypto.randomUUID();
 
   // Upload .pth file
   const pthKey = `rvc-models/${uuid}.pth`;

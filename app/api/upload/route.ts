@@ -2,7 +2,6 @@ export const runtime = "edge";
 import { NextRequest, NextResponse } from "next/server";
 import { uploadToR2 } from "@/lib/r2";
 import { createServiceClient } from "@/lib/supabase";
-import { randomUUID } from "crypto";
 
 const ALLOWED_TYPES = ["audio/wav", "audio/mpeg", "audio/mp4", "audio/x-m4a", "audio/aac"];
 const MAX_BYTES = 50 * 1024 * 1024; // 50 MB
@@ -22,7 +21,7 @@ export async function POST(req: NextRequest) {
   }
 
   const ext = file.name.split(".").pop() ?? "wav";
-  const key = `profiles/${randomUUID()}.${ext}`;
+  const key = `profiles/${crypto.randomUUID()}.${ext}`;
   const buffer = Buffer.from(await file.arrayBuffer());
 
   const url = await uploadToR2(key, buffer, file.type);
