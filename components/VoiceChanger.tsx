@@ -9,6 +9,7 @@ const SILENCE_SAMPLES   = Math.floor(SAMPLE_RATE * 0.25); // 250ms silence → e
 const MIN_SAMPLES       = Math.floor(SAMPLE_RATE * 0.3);  // 300ms min before sending
 const MAX_SAMPLES       = SAMPLE_RATE * 3;                 // 3s max (non-stop speech failsafe)
 const FADE_SAMPLES      = Math.floor(SAMPLE_RATE * 0.02); // 20ms fade-in to smooth boundaries
+const CONTEXT_SAMPLES   = Math.floor(SAMPLE_RATE * 0.25); // 250ms context for sliding window
 
 interface Props {
   activeProfileUrl: string | null;
@@ -16,6 +17,7 @@ interface Props {
 
 export default function VoiceChanger({ activeProfileUrl }: Props) {
   const [isRunning, setIsRunning] = useState(false);
+  const [isStreaming, setIsStreaming] = useState(false);
   const [connState, setConnState] = useState<ConnectionState>("disconnected");
   const [latency, setLatency] = useState<number | null>(null);
 
@@ -33,6 +35,8 @@ export default function VoiceChanger({ activeProfileUrl }: Props) {
   const chunkSamplesCollected = useRef(0);
   const silenceSamplesRef = useRef(0);
   const activeProfileUrlRef = useRef<string | null>(activeProfileUrl);
+  const isStreamingRef = useRef(isStreaming);
+  const streamingContextRef = useRef<Float32Array | null>(null);
 
   // Fetch WS URL once
   useEffect(() => {
@@ -46,6 +50,10 @@ export default function VoiceChanger({ activeProfileUrl }: Props) {
   useEffect(() => {
     activeProfileUrlRef.current = activeProfileUrl;
   }, [activeProfileUrl]);
+
+  useEffect(() => {
+    isStreamingRef.current = isStreaming;
+  }, [isStreaming]);
 
   // Send profile whenever URL changes while connected
   useEffect(() => {
@@ -67,12 +75,20 @@ export default function VoiceChanger({ activeProfileUrl }: Props) {
     if (!ctx) return;
 
     const float32 = new Float32Array(data);
-    // Fade in the first 20ms to eliminate clicks at chunk boundaries
-    for (let i = 0; i < FADE_SAMPLES && i < float32.length; i++) {
-      float32[i] *= i / FADE_SAMPLES;
+    
+    // In streaming mode, the server returns [context + new audio]
+    // We only play the "new audio" part to avoid hearing the context twice (echo)
+    let audioToPlay = float32;
+    if (isStreamingRef.current && float32.length > CONTEXT_SAMPLES) {
+      audioToPlay = float32.slice(CONTEXT_SAMPLES);
     }
-    const buffer = ctx.createBuffer(1, float32.length, SAMPLE_RATE);
-    buffer.copyToChannel(float32, 0);
+
+    // Fade in the first 20ms to eliminate clicks at chunk boundaries
+    for (let i = 0; i < FADE_SAMPLES && i < audioToPlay.length; i++) {
+      audioToPlay[i] *= i / FADE_SAMPLES;
+    }
+    const buffer = ctx.createBuffer(1, audioToPlay.length, SAMPLE_RATE);
+    buffer.copyToChannel(audioToPlay, 0);
 
     const source = ctx.createBufferSource();
     source.buffer = buffer;
@@ -162,10 +178,32 @@ export default function VoiceChanger({ activeProfileUrl }: Props) {
       const silencePause = silenceSamplesRef.current     >= SILENCE_SAMPLES;
       const tooLong      = chunkSamplesCollected.current >= MAX_SAMPLES;
 
-      if (enoughAudio && (silencePause || tooLong)) {
-        const merged = new Float32Array(chunkSamplesCollected.current);
+      // In streaming mode, we send every 500ms regardless of silence
+      const streamingTrigger = isStreamingRef.current && chunkSamplesCollected.current >= (SAMPLE_RATE * 0.5);
+      const oneShotTrigger  = !isStreamingRef.current && enoughAudio && (silencePause || tooLong);
+
+      if (streamingTrigger || oneShotTrigger) {
+        let merged = new Float32Array(chunkSamplesCollected.current);
         let offset = 0;
         for (const buf of chunkBufferRef.current) { merged.set(buf, offset); offset += buf.length; }
+        
+        // --- Added Sliding Window Logic ---
+        if (streamingTrigger) {
+          const newContext = merged.slice(-CONTEXT_SAMPLES);
+          if (streamingContextRef.current) {
+            // Prepend old context to improve pronunciation
+            const withContext = new Float32Array(CONTEXT_SAMPLES + merged.length);
+            withContext.set(streamingContextRef.current, 0);
+            withContext.set(merged, CONTEXT_SAMPLES);
+            merged = withContext;
+          }
+          streamingContextRef.current = newContext;
+        } else {
+          // Reset context when stopping/starting a new one-shot sentence
+          streamingContextRef.current = null;
+        }
+        // ------------------------------------
+
         chunkBufferRef.current        = [];
         chunkSamplesCollected.current = 0;
         silenceSamplesRef.current     = 0;
@@ -197,6 +235,7 @@ export default function VoiceChanger({ activeProfileUrl }: Props) {
     chunkBufferRef.current = [];
     chunkSamplesCollected.current = 0;
     silenceSamplesRef.current = 0;
+    streamingContextRef.current = null;
     setIsRunning(false);
     setConnState("disconnected");
     setLatency(null);
@@ -218,11 +257,19 @@ export default function VoiceChanger({ activeProfileUrl }: Props) {
         <canvas ref={canvasRef} width={800} height={96} className="w-full h-full" />
       </div>
 
-      {/* Status bar */}
-      <div className="flex items-center gap-6 text-sm">
+      {/* Status bar & Streaming Toggle */}
+      <div className="flex items-center gap-8 text-sm">
         <span className={connColor[connState]}>
           ● {connState}
         </span>
+        
+        <div className="flex items-center gap-2 cursor-pointer select-none" onClick={() => setIsStreaming(!isStreaming)}>
+          <div className={`w-8 h-4 rounded-full relative transition-colors ${isStreaming ? 'bg-sky-600' : 'bg-zinc-700'}`}>
+            <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all ${isStreaming ? 'left-4.5' : 'left-0.5'}`} />
+          </div>
+          <span className={isStreaming ? 'text-sky-400 font-medium' : 'text-zinc-500'}>Streaming Mode</span>
+        </div>
+
         {latency !== null && (
           <span className="text-zinc-400">
             <span className="text-cyan-400 font-mono">{latency}</span> ms
