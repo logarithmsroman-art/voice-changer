@@ -33,12 +33,20 @@ export default function Home() {
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-cyan-400" />
           <span className="font-semibold tracking-tight text-lg">VoiceShift</span>
         </div>
-        <Link
-          href="/setup"
-          className="text-sm text-zinc-400 hover:text-zinc-200 transition-colors"
-        >
-          Manage voices →
-        </Link>
+        <div className="flex items-center gap-6">
+          <Link
+            href="/setup"
+            className="text-sm text-zinc-400 hover:text-zinc-200 transition-colors"
+          >
+            Manage voices →
+          </Link>
+          <a
+            href="https://pub-2468e581fce6488fbf648634e0b0e1c9.r2.dev/voiceshift.apk"
+            className="px-4 py-1.5 bg-violet-600/20 hover:bg-violet-600/30 text-violet-400 text-xs font-semibold rounded-full border border-violet-500/30 transition-all"
+          >
+            Get Android App
+          </a>
+        </div>
       </header>
 
       {/* Main content */}
