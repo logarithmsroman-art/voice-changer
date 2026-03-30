@@ -1,3 +1,5 @@
+package com.voiceshift.app;
+
 import android.os.Bundle;
 import android.content.Context;
 import android.media.AudioManager;
